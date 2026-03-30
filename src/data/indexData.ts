@@ -49,19 +49,108 @@ export const YEARLY_ZS500: Record<number, number> = {
   2026: 7800,
 };
 
+// 沪深300指数年度平均点位
+export const YEARLY_HS300: Record<number, number> = {
+  2002: 1000,  // 基日2004年12月31日，基值1000
+  2005: 900,
+  2006: 1500,
+  2007: 5500,  // 牛市顶点
+  2008: 1800,  // 金融危机
+  2009: 3500,
+  2010: 3200,
+  2011: 2300,
+  2012: 2500,
+  2013: 2300,
+  2014: 3500,
+  2015: 4200,  // 牛市顶点
+  2016: 3500,
+  2017: 4200,
+  2018: 3200,  // 熊市
+  2019: 4100,
+  2020: 5200,
+  2021: 5100,  // 结构牛
+  2022: 3900,
+  2023: 3500,
+  2024: 3900,  // 9.24行情
+  2025: 4200,
+  2026: 4500,
+};
+
+// 中证1000指数年度平均点位
+export const YEARLY_ZS1000: Record<number, number> = {
+  2005: 1000,  // 基日
+  2006: 1500,
+  2007: 5500,  // 牛市顶点
+  2008: 2000,  // 金融危机
+  2009: 3800,
+  2010: 4500,
+  2011: 3500,
+  2012: 3200,
+  2013: 3800,
+  2014: 5000,
+  2015: 10500, // 牛市顶点
+  2016: 7000,
+  2017: 7500,
+  2018: 5000,  // 熊市
+  2019: 6500,
+  2020: 7000,
+  2021: 8500,  // 结构牛
+  2022: 7000,
+  2023: 6500,
+  2024: 7000,  // 9.24行情
+  2025: 8500,
+  2026: 9000,
+};
+
+// 中证A500指数年度平均点位
+export const YEARLY_ZSA500: Record<number, number> = {
+  2010: 3500,  // 基日2010年
+  2011: 2800,
+  2012: 3000,
+  2013: 3200,
+  2014: 4000,
+  2015: 5500,  // 牛市顶点
+  2016: 4500,
+  2017: 4800,
+  2018: 3600,  // 熊市
+  2019: 4300,
+  2020: 5200,
+  2021: 5600,  // 结构牛
+  2022: 4800,
+  2023: 4500,
+  2024: 4900,  // 9.24行情
+  2025: 5500,
+  2026: 5800,
+};
+
 // 指数类型
-export type IndexType = 'ZS2000' | 'ZS500';
+export type IndexType = 'ZS2000' | 'ZS500' | 'HS300' | 'ZS1000' | 'ZSA500';
 
 // 指数配置
 export const INDEX_CONFIG: Record<IndexType, { name: string; color: string; baseYear: number }> = {
   ZS2000: { name: '中证2000', color: '#E91E63', baseYear: 2014 },
   ZS500: { name: '中证500', color: '#9C27B0', baseYear: 2005 },
+  HS300: { name: '沪深300', color: '#00BCD4', baseYear: 2002 },
+  ZS1000: { name: '中证1000', color: '#FF9800', baseYear: 2005 },
+  ZSA500: { name: '中证A500', color: '#4CAF50', baseYear: 2010 },
 };
 
 // 获取年度平均点位
 function getYearlyIndexValue(year: number, indexType: IndexType): number {
-  const data = indexType === 'ZS2000' ? YEARLY_ZS2000 : YEARLY_ZS500;
-  return data[year] || 5000;
+  switch (indexType) {
+    case 'ZS2000':
+      return YEARLY_ZS2000[year] || 5000;
+    case 'ZS500':
+      return YEARLY_ZS500[year] || 5000;
+    case 'HS300':
+      return YEARLY_HS300[year] || 4000;
+    case 'ZS1000':
+      return YEARLY_ZS1000[year] || 7000;
+    case 'ZSA500':
+      return YEARLY_ZSA500[year] || 4500;
+    default:
+      return 5000;
+  }
 }
 
 // 生成指数历史数据（与市值数据同步）

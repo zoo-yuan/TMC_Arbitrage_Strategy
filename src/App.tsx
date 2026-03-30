@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { MarketValueChart } from './components/MarketValueChart';
 import { useMarketData, useRealtimeMarketCap, GDP_RATIOS, type IndexType } from './hooks/useMarketData';
 import { GDP_RATIO_COLORS } from './data/gdpData';
 import { INDEX_CONFIG } from './data/indexData';
+import { useStockSearch, useSelectedStocks, type StockInfo } from './hooks/useStockData';
 import './index.css';
 
 type Period = '1M' | '6M' | '1Y' | '3Y' | '5Y' | '10Y' | 'ALL' | 'CUSTOM';
@@ -18,7 +19,7 @@ const PERIODS: { value: Period; label: string }[] = [
   { value: 'CUSTOM', label: '自定义' },
 ];
 
-const AVAILABLE_INDICES: IndexType[] = ['ZS2000', 'ZS500'];
+const AVAILABLE_INDICES: IndexType[] = ['ZS2000', 'ZS500', 'ZS1000', 'HS300', 'ZSA500'];
 
 function App() {
   const [period, setPeriod] = useState<Period>('ALL');
@@ -28,6 +29,12 @@ function App() {
     return today.toISOString().split('T')[0];
   });
   const [selectedIndices, setSelectedIndices] = useState<IndexType[]>([]);
+
+  // 股票搜索
+  const [stockKeyword, setStockKeyword] = useState('');
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  const { results: stockResults, loading: stockLoading, search } = useStockSearch();
+  const { stocks: selectedStocks, addStock, removeStock } = useSelectedStocks();
 
   // 构建自定义时间范围
   const customRange = period === 'CUSTOM' ? {
@@ -49,6 +56,23 @@ function App() {
         : [...prev, index]
     );
   };
+
+  // 股票搜索防抖
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (stockKeyword.trim()) {
+        search(stockKeyword);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [stockKeyword, search]);
+
+  // 选择股票
+  const handleSelectStock = useCallback(async (stock: StockInfo) => {
+    await addStock(stock);
+    setStockKeyword('');
+    setShowSearchResults(false);
+  }, [addStock]);
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -165,6 +189,85 @@ function App() {
         </div>
       </div>
 
+      {/* Stock Selector */}
+      <div className="bg-white border-b">
+        <div className="max-w-7xl mx-auto px-4 py-3">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-4">
+              <span className="text-sm text-gray-600">叠加个股:</span>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={stockKeyword}
+                  onChange={(e) => {
+                    setStockKeyword(e.target.value);
+                    setShowSearchResults(true);
+                  }}
+                  onFocus={() => setShowSearchResults(true)}
+                  placeholder="输入股票代码或名称..."
+                  className="w-64 px-3 py-1.5 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+
+                {/* 搜索结果下拉框 */}
+                {showSearchResults && stockKeyword.trim() && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border rounded-md shadow-lg z-50 max-h-60 overflow-auto">
+                    {stockLoading ? (
+                      <div className="px-3 py-2 text-sm text-gray-500">搜索中...</div>
+                    ) : stockResults.length === 0 ? (
+                      <div className="px-3 py-2 text-sm text-gray-500">未找到相关股票</div>
+                    ) : (
+                      stockResults.map((stock) => (
+                        <button
+                          key={stock.secid}
+                          onClick={() => handleSelectStock(stock)}
+                          className="w-full px-3 py-2 text-left hover:bg-gray-100 border-b last:border-b-0"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium">{stock.name}</span>
+                            <span className="text-xs text-gray-500">{stock.code}</span>
+                          </div>
+                          <div className="text-xs text-gray-400">{stock.type}</div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+              <span className="text-xs text-gray-400">（股价和PE将自动量纲转换以匹配市值曲线）</span>
+            </div>
+
+            {/* 已选股票列表 */}
+            {selectedStocks.length > 0 && (
+              <div className="flex items-center gap-3 flex-wrap pt-2 border-t">
+                <span className="text-sm text-gray-500">已选:</span>
+                {selectedStocks.map((stock) => (
+                  <div
+                    key={stock.info.secid}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm"
+                    style={{ backgroundColor: `${stock.color}20`, border: `1px solid ${stock.color}` }}
+                  >
+                    <span className="font-medium" style={{ color: stock.color }}>
+                      {stock.info.name}
+                    </span>
+                    {stock.realtime && (
+                      <span className="text-xs text-gray-600">
+                        ¥{stock.realtime.price.toFixed(2)} | PE:{stock.realtime.pe.toFixed(1)}
+                      </span>
+                    )}
+                    <button
+                      onClick={() => removeStock(stock.info.secid)}
+                      className="ml-1 text-gray-400 hover:text-red-500"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Legend */}
       <div className="bg-white border-b">
         <div className="max-w-7xl mx-auto px-4 py-3">
@@ -195,6 +298,15 @@ function App() {
                 <span className="text-gray-600">{INDEX_CONFIG[idx].name}</span>
               </div>
             ))}
+            {selectedStocks.map(stock => (
+              <div key={stock.info.secid} className="flex items-center gap-1.5">
+                <div
+                  className="w-4 h-0.5 rounded"
+                  style={{ backgroundColor: stock.color }}
+                ></div>
+                <span className="text-gray-600">{stock.info.name}(价)</span>
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -202,7 +314,11 @@ function App() {
       {/* Chart */}
       <main className="max-w-7xl mx-auto px-4 py-6">
         <div className="bg-white rounded-lg shadow p-4" style={{ height: '600px' }}>
-          <MarketValueChart data={data} selectedIndices={selectedIndices} />
+          <MarketValueChart
+            data={data}
+            selectedIndices={selectedIndices}
+            selectedStocks={selectedStocks}
+          />
         </div>
       </main>
 
