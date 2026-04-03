@@ -123,21 +123,82 @@ export const YEARLY_ZSA500: Record<number, number> = {
   2026: 5800,
 };
 
+// 中证红利指数年度平均点位 (000922, 基日2004-12-31, 基点1000)
+export const YEARLY_ZSHL: Record<number, number> = {
+  2005: 910,    // 指数初创
+  2006: 1188,
+  2007: 3766,   // 牛市顶点
+  2008: 3128,   // 金融危机
+  2009: 2864,
+  2010: 3033,
+  2011: 2919,
+  2012: 2393,
+  2013: 2430,
+  2014: 2460,
+  2015: 4308,   // 牛市顶点
+  2016: 3839,
+  2017: 4485,
+  2018: 4308,   // 贸易战
+  2019: 3936,
+  2020: 4200,
+  2021: 3800,   // 结构牛中红利偏弱
+  2022: 3600,
+  2023: 3600,
+  2024: 4400,   // 9.24行情 + 红利策略盛行
+  2025: 5300,
+  2026: 5400,
+};
+
+// 上证指数年度平均点位
+export const YEARLY_SHCOMP: Record<number, number> = {
+  2000: 2000,
+  2001: 1800,
+  2002: 1550,
+  2003: 1500,
+  2004: 1400,
+  2005: 1150,  // 熊市底部
+  2006: 2200,
+  2007: 5200,  // 牛市顶点(10月6124)
+  2008: 2200,  // 金融危机(10月1664)
+  2009: 3000,
+  2010: 2900,
+  2011: 2400,
+  2012: 2200,
+  2013: 2200,
+  2014: 3200,
+  2015: 3900,  // 牛市顶点(6月5178)
+  2016: 3100,
+  2017: 3300,
+  2018: 2700,  // 贸易战熊市
+  2019: 3100,
+  2020: 3400,
+  2021: 3600,  // 结构牛
+  2022: 3200,
+  2023: 3100,
+  2024: 3300,  // 9.24行情
+  2025: 3400,
+  2026: 3500,
+};
+
 // 指数类型
-export type IndexType = 'ZS2000' | 'ZS500' | 'HS300' | 'ZS1000' | 'ZSA500';
+export type IndexType = 'SHCOMP' | 'ZS2000' | 'ZS500' | 'HS300' | 'ZS1000' | 'ZSA500' | 'ZSHL';
 
 // 指数配置
 export const INDEX_CONFIG: Record<IndexType, { name: string; color: string; baseYear: number }> = {
+  SHCOMP: { name: '上证指数', color: '#F44336', baseYear: 2000 },
   ZS2000: { name: '中证2000', color: '#E91E63', baseYear: 2014 },
   ZS500: { name: '中证500', color: '#9C27B0', baseYear: 2005 },
   HS300: { name: '沪深300', color: '#00BCD4', baseYear: 2002 },
   ZS1000: { name: '中证1000', color: '#FF9800', baseYear: 2005 },
   ZSA500: { name: '中证A500', color: '#4CAF50', baseYear: 2010 },
+  ZSHL: { name: '中证红利', color: '#795548', baseYear: 2005 },
 };
 
 // 获取年度平均点位
 function getYearlyIndexValue(year: number, indexType: IndexType): number {
   switch (indexType) {
+    case 'SHCOMP':
+      return YEARLY_SHCOMP[year] || 3000;
     case 'ZS2000':
       return YEARLY_ZS2000[year] || 5000;
     case 'ZS500':
@@ -148,6 +209,8 @@ function getYearlyIndexValue(year: number, indexType: IndexType): number {
       return YEARLY_ZS1000[year] || 7000;
     case 'ZSA500':
       return YEARLY_ZSA500[year] || 4500;
+    case 'ZSHL':
+      return YEARLY_ZSHL[year] || 3500;
     default:
       return 5000;
   }

@@ -15,6 +15,7 @@ export interface RealtimeMarketCap {
   flow: string;    // 流通市值（万亿）
   sh: { name: string; total: string };
   sz: { name: string; total: string };
+  bj: { name: string; total: string };
   timestamp: string;
 }
 
@@ -103,20 +104,24 @@ function generateHistoricalMarketData(
 
   // 预生成指数数据
   const indexDataMap: Record<IndexType, ReturnType<typeof generateIndexData>> = {
+    SHCOMP: selectedIndices.includes('SHCOMP') ? generateIndexData(startDate, endDate, 'SHCOMP') : [],
     ZS2000: selectedIndices.includes('ZS2000') ? generateIndexData(startDate, endDate, 'ZS2000') : [],
     ZS500: selectedIndices.includes('ZS500') ? generateIndexData(startDate, endDate, 'ZS500') : [],
     HS300: selectedIndices.includes('HS300') ? generateIndexData(startDate, endDate, 'HS300') : [],
     ZS1000: selectedIndices.includes('ZS1000') ? generateIndexData(startDate, endDate, 'ZS1000') : [],
     ZSA500: selectedIndices.includes('ZSA500') ? generateIndexData(startDate, endDate, 'ZSA500') : [],
+    ZSHL: selectedIndices.includes('ZSHL') ? generateIndexData(startDate, endDate, 'ZSHL') : [],
   };
 
   // 创建日期到指数值的映射
   const indexValueMap: Record<IndexType, Map<string, number>> = {
+    SHCOMP: new Map(indexDataMap.SHCOMP.map(d => [d.date, d.value])),
     ZS2000: new Map(indexDataMap.ZS2000.map(d => [d.date, d.value])),
     ZS500: new Map(indexDataMap.ZS500.map(d => [d.date, d.value])),
     HS300: new Map(indexDataMap.HS300.map(d => [d.date, d.value])),
     ZS1000: new Map(indexDataMap.ZS1000.map(d => [d.date, d.value])),
     ZSA500: new Map(indexDataMap.ZSA500.map(d => [d.date, d.value])),
+    ZSHL: new Map(indexDataMap.ZSHL.map(d => [d.date, d.value])),
   };
 
   while (current < today && current <= endDate) {

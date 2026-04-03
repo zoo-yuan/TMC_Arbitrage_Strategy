@@ -24,11 +24,13 @@ export const MarketValueChart: React.FC<MarketValueChartProps> = ({ data, select
 
     // 计算指数的量纲转换系数
     const indexScaleFactors: Record<IndexType, number> = {
+      SHCOMP: 1,
       ZS2000: 1,
       ZS500: 1,
       HS300: 1,
       ZS1000: 1,
       ZSA500: 1,
+      ZSHL: 1,
     };
 
     for (const idx of selectedIndices) {
