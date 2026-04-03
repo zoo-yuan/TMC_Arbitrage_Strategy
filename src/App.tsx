@@ -19,7 +19,7 @@ const PERIODS: { value: Period; label: string }[] = [
   { value: 'CUSTOM', label: '自定义' },
 ];
 
-const AVAILABLE_INDICES: IndexType[] = ['ZS2000', 'ZS500', 'ZS1000', 'HS300', 'ZSA500'];
+const AVAILABLE_INDICES: IndexType[] = ['SHCOMP', 'ZS2000', 'ZS500', 'ZS1000', 'HS300', 'ZSA500', 'ZSHL'];
 
 function App() {
   const [period, setPeriod] = useState<Period>('ALL');
@@ -324,7 +324,7 @@ function App() {
 
       {/* Footer */}
       <footer className="text-center text-xs text-gray-400 py-4">
-        数据来源: 东方财富(实时) | 2026年GDP为预估（2025年GDP × 1.05）
+        数据来源: 上交所+深交所官方接口(实时) + 东方财富(北证) | 2026年GDP为预估（2025年GDP × 1.05）
         {selectedIndices.length > 0 && ' | 指数数据为模拟历史数据'}
       </footer>
     </div>
