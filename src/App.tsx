@@ -251,7 +251,7 @@ function App() {
                     </span>
                     {stock.realtime && (
                       <span className="text-xs text-gray-600">
-                        ¥{stock.realtime.price.toFixed(2)} | PE:{stock.realtime.pe.toFixed(1)}
+                        {stock.info.isAshare === false ? 'HK$' : '¥'}{stock.realtime.price.toFixed(2)} | PE:{stock.realtime.pe.toFixed(1)}
                       </span>
                     )}
                     <button

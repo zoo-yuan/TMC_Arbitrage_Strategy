@@ -6,6 +6,7 @@ export interface StockInfo {
   market: number;
   secid: string;
   type: string;
+  isAshare: boolean;
 }
 
 export interface StockKlineData {

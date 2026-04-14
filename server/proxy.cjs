@@ -52,30 +52,41 @@ function getSSEMarketSummary() {
 // ============================================================
 // 数据源2: 深圳证券交易所官方API
 // 返回: 证券类别统计，包含 股票 总市值
+// 自动回退到最近的交易日（当天可能没有数据）
 // ============================================================
 function getSZSEMarketSummary() {
-  const today = new Date();
-  const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  const url = `https://www.szse.cn/api/report/ShowReport/data?SHOWTYPE=JSON&CATALOGID=1803_sczm&TABKEY=tab1&txtQueryDate=${dateStr}&random=${Math.random()}`;
-  return httpGet(url, {
-    headers: {
-      'Referer': 'https://www.szse.cn/market/overview/index.html',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      'Accept': 'application/json',
-    }
-  }).then(json => {
-    // json 是数组，json[0].data 是各行数据
-    const rows = json[0].data;
-    // 找"股票"行（不含缩进的顶层行）
-    const stockRow = rows.find(r => r.lbmc.trim() === '股票');
-    if (!stockRow) throw new Error('SZSE: 未找到股票行');
+  // 尝试最近5个日期，找到有数据的交易日
+  const tryDates = [];
+  for (let i = 0; i < 5; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    tryDates.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+  }
 
-    return {
-      totalValue: parseFloat(stockRow.sjzz.replace(/,/g, '')) * 1e8,  // 亿元 -> 元
-      flowValue: parseFloat(stockRow.ltsz.replace(/,/g, '')) * 1e8,
-      stockCount: parseInt(stockRow.zqsl),
-    };
-  });
+  return tryDates.reduce((promise, dateStr) => {
+    return promise.catch(async () => {
+      const url = `https://www.szse.cn/api/report/ShowReport/data?SHOWTYPE=JSON&CATALOGID=1803_sczm&TABKEY=tab1&txtQueryDate=${dateStr}&random=${Math.random()}`;
+      const json = await httpGet(url, {
+        headers: {
+          'Referer': 'https://www.szse.cn/market/overview/index.html',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': 'application/json',
+        }
+      });
+
+      const rows = json[0]?.data;
+      if (!rows || rows.length === 0) throw new Error('SZSE: 无数据 ' + dateStr);
+
+      const stockRow = rows.find(r => r.lbmc.trim() === '股票');
+      if (!stockRow) throw new Error('SZSE: 未找到股票行 ' + dateStr);
+
+      return {
+        totalValue: parseFloat(stockRow.sjzz.replace(/,/g, '')) * 1e8,
+        flowValue: parseFloat(stockRow.ltsz.replace(/,/g, '')) * 1e8,
+        stockCount: parseInt(stockRow.zqsl),
+      };
+    });
+  }, Promise.reject(new Error('start')));
 }
 
 // ============================================================
@@ -169,7 +180,7 @@ async function getTotalAMarketCap() {
   }
 }
 
-// 搜索股票（A股专用）- 使用东方财富智能提示API
+// 搜索股票（A股+港股）- 使用东方财富智能提示API
 function searchStock(keyword) {
   return new Promise((resolve, reject) => {
     const encodedKeyword = encodeURIComponent(keyword);
@@ -194,19 +205,17 @@ function searchStock(keyword) {
           const json = JSON.parse(data);
           const allData = json.QuotationCodeTable?.Data || [];
 
-          // 转换并标记A股
+          // 转换并标记市场类型
           const results = allData.map(item => {
             const market = String(item.MarketType);
             let isAshare = false;
             let marketType = '';
-            let secidPrefix = market;
 
             // 判断市场类型
             // 0=深圳主板, 1=上海, 2=创业板(深圳), 100=北京, 5=港股
             if (market === '0' || market === '2') {
               isAshare = true;
               marketType = market === '2' ? '创业板' : '深圳A股';
-              secidPrefix = market;
             } else if (market === '1') {
               isAshare = true;
               marketType = '上海A股';
@@ -223,15 +232,17 @@ function searchStock(keyword) {
               code: item.Code,
               name: item.Name,
               market: item.MarketType,
-              secid: `${secidPrefix}.${item.Code}`,
+              secid: item.QuoteID || `${market}.${item.Code}`,
               type: marketType,
               isAshare: isAshare
             };
           });
 
-          // 优先返回A股，如果没有A股则返回全部
-          const ashares = results.filter(r => r.isAshare);
-          resolve(ashares.length > 0 ? ashares : results);
+          // 只返回A股和港股，过滤掉指数、基金、债券等
+          const validResults = results.filter(r =>
+            r.isAshare || String(r.market) === '5'
+          );
+          resolve(validResults);
         } catch (e) {
           reject(e);
         }
@@ -242,8 +253,20 @@ function searchStock(keyword) {
   });
 }
 
-// 获取股票历史K线数据 - 使用新浪财经API
+// 获取股票历史K线数据
+// A股使用新浪财经API，港股使用东方财富K线API
 function getStockKline(secid, market, code, limit = 500) {
+  // 港股：secid 以 116. 开头，使用东方财富K线API
+  if (String(secid).startsWith('116.')) {
+    return getHKStockKline(secid, code, limit);
+  }
+
+  // A股：使用新浪财经K线API
+  return getAStockKline(secid, market, code, limit);
+}
+
+// A股K线数据 - 新浪财经API
+function getAStockKline(secid, market, code, limit = 500) {
   return new Promise((resolve, reject) => {
     // 转换市场类型：创业板(2) -> 深圳(sz), 上海(sh)
     const actualMarket = String(market) === '2' || String(market) === '0' ? 'sz' : 'sh';
@@ -290,10 +313,51 @@ function getStockKline(secid, market, code, limit = 500) {
   });
 }
 
+// 港股K线数据 - 东方财富K线API
+function getHKStockKline(secid, code, limit = 500) {
+  const url = `http://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57&klt=101&fqt=1&end=20500101&lmt=${limit}&ut=fa5fd1943c7b386f172d6893dbfba10b`;
+
+  return httpGet(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      'Referer': 'https://quote.eastmoney.com/',
+    }
+  }).then(json => {
+    const klines = json.data?.klines || [];
+
+    // 解析K线数据：date,open,close,high,low,volume,amount
+    const parsed = klines.map(k => {
+      const parts = k.split(',');
+      return {
+        date: parts[0],
+        open: parseFloat(parts[1]),
+        close: parseFloat(parts[2]),
+        high: parseFloat(parts[3]),
+        low: parseFloat(parts[4]),
+        volume: parseFloat(parts[5]),
+        amount: parseFloat(parts[6]),
+        amplitude: 0,
+        changePercent: 0,
+        changeAmount: 0,
+        turnover: 0,
+      };
+    });
+
+    return {
+      name: json.data?.name || '',
+      code: code,
+      market: 5,
+      secid: secid,
+      klines: parsed
+    };
+  });
+}
+
 // 获取股票实时数据（包含PE）
+// A股价格需/100，港股价格直接是元
 function getStockRealtime(secid) {
   return new Promise((resolve, reject) => {
-    const url = `http://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f57,f58,f43,f44,f45,f46,f47,f48,f57,f58,f60,f107,f170,f171,f177,f20,f21,f23,f9&ut=fa5fd1943c7b386f172d6893dbfba10b&fltt=2&invt=2`;
+    const url = `http://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f57,f58,f43,f44,f45,f46,f47,f48,f57,f58,f60,f107,f170,f171,f177,f20,f21,f162,f163,f164,f167&ut=fa5fd1943c7b386f172d6893dbfba10b&fltt=2&invt=2`;
     http.get(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
@@ -306,18 +370,25 @@ function getStockRealtime(secid) {
         try {
           const json = JSON.parse(data);
           const d = json.data;
+          // 港股 secid 以 116. 开头，价格直接是元；A股价格需除以100
+          const isHK = String(secid).startsWith('116.');
+          const divisor = isHK ? 1 : 100;
+          // PE: f163=PE(TTM), f164=PE(静态), f162=PE(动态)
+          const peTTM = d?.f163 && d.f163 !== '-' ? parseFloat(d.f163) : 0;
+          const peStatic = d?.f164 && d.f164 !== '-' ? parseFloat(d.f164) : 0;
+          const pe = peTTM || peStatic || 0;
           resolve({
             code: d?.f57,
             name: d?.f58,
-            price: d?.f43 ? d.f43 / 100 : 0,
-            change: d?.f170 ? d.f170 / 100 : 0,
+            price: d?.f43 ? d.f43 / divisor : 0,
+            change: d?.f170 ? d.f170 / divisor : 0,
             changePercent: d?.f171 ? d.f171 / 100 : 0,
-            pe: d?.f9 || 0,
-            pb: d?.f23 ? d.f23 / 100 : 0,
-            marketCap: d?.f20 ? d.f20 / 1e8 : 0,
-            floatCap: d?.f21 ? d.f21 / 1e8 : 0,
-            high: d?.f44 ? d.f44 / 100 : 0,
-            low: d?.f45 ? d.f45 / 100 : 0,
+            pe: pe,
+            pb: d?.f167 && d.f167 !== '-' ? parseFloat(d.f167) : 0,
+            marketCap: d?.f20 && d.f20 !== '-' ? d.f20 / 1e8 : 0,
+            floatCap: d?.f21 && d.f21 !== '-' ? d.f21 / 1e8 : 0,
+            high: d?.f44 ? d.f44 / divisor : 0,
+            low: d?.f45 ? d.f45 / divisor : 0,
             volume: d?.f47 || 0,
             amount: d?.f48 || 0,
           });
@@ -394,11 +465,185 @@ app.get('/api/stock/realtime', async (req, res) => {
   }
 });
 
+// ============================================================
+// 指数K线数据 - 优先新浪财经API，备选东方财富push2his
+// ============================================================
+const INDEX_EM_SECID = {
+  'sh000922': '1.000922',  // 中证红利：新浪数据异常，用东方财富
+};
+
+function getIndexKline(symbol, limit = 500) {
+  // 检查是否需要直接走东方财富
+  const emSecid = INDEX_EM_SECID[symbol];
+  if (emSecid) {
+    return getIndexKlineFromEM(emSecid, limit);
+  }
+
+  // 默认走新浪
+  return getIndexKlineFromSina(symbol, limit).then(data => {
+    // 新浪数据不足时，尝试东方财富补充
+    if (data.length < Math.min(limit, 10)) {
+      const emSecid2 = sinaToEMSecid(symbol);
+      if (emSecid2) {
+        console.log(`[IndexKline] ${symbol} 新浪数据不足(${data.length})，尝试东方财富`);
+        return getIndexKlineFromEM(emSecid2, limit).catch(() => data);
+      }
+    }
+    return data;
+  });
+}
+
+// 新浪 -> 东方财富 secid 转换
+function sinaToEMSecid(symbol) {
+  const map = {
+    'sh000001': '1.000001', 'sh000300': '1.000300', 'sh000905': '1.000905',
+    'sh000922': '1.000922', 'sh000852': '1.000852', 'sh000510': '1.000510',
+    'sz399303': '0.399303', 'sz399106': '0.399106',
+  };
+  return map[symbol] || null;
+}
+
+// 新浪财经K线
+function getIndexKlineFromSina(symbol, limit) {
+  const url = `http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol=${symbol}&scale=240&datalen=${limit}`;
+  return httpGet(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' }
+  }).then(json => {
+    const klines = Array.isArray(json) ? json : [];
+    return klines.map(k => ({
+      date: k.day,
+      close: parseFloat(k.close),
+      open: parseFloat(k.open),
+      high: parseFloat(k.high),
+      low: parseFloat(k.low),
+      volume: parseFloat(k.volume),
+    }));
+  }).catch(() => []);
+}
+
+// 东方财富K线（备选）
+function getIndexKlineFromEM(secid, limit) {
+  const url = `http://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57&klt=101&fqt=1&end=20500101&lmt=${limit}&ut=fa5fd1943c7b386f172d6893dbfba10b`;
+  return httpGet(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      'Referer': 'https://quote.eastmoney.com/',
+    }
+  }).then(json => {
+    const klines = json.data?.klines || [];
+    return klines.map(k => {
+      const p = k.split(',');
+      return { date: p[0], open: parseFloat(p[1]), close: parseFloat(p[2]), high: parseFloat(p[3]), low: parseFloat(p[4]), volume: parseFloat(p[5]) };
+    });
+  });
+}
+
+// ============================================================
+// 市值历史数据 - 基于真实指数数据回算
+// ============================================================
+async function getMarketCapHistory(limit = 500) {
+  // 1. 获取当前真实总市值（SH/SZ/BJ 分项）
+  let currentMCap;
+  try {
+    currentMCap = await getTotalAMarketCap();
+  } catch (e) {
+    throw new Error('获取当前市值失败: ' + e.message);
+  }
+
+  const currentSH = (currentMCap.breakdown?.sh?.total || 0) / 1e12; // 万亿
+  const currentSZ = (currentMCap.breakdown?.sz?.total || 0) / 1e12;
+  const currentBJ = (currentMCap.breakdown?.bj?.total || 0) / 1e12;
+
+  // 2. 获取上证指数和深证综指的真实K线
+  const [shKline, szKline] = await Promise.all([
+    getIndexKline('sh000001', limit),
+    getIndexKline('sz399106', limit),
+  ]);
+
+  if (!shKline.length || !szKline.length) {
+    throw new Error('指数K线数据为空');
+  }
+
+  // 3. 最新交易日的指数收盘价（作为基准）
+  const latestSH = shKline[shKline.length - 1].close;
+  const latestSZ = szKline[szKline.length - 1].close;
+
+  // 4. 构建日期->收盘价映射
+  const szMap = new Map(szKline.map(k => [k.date, k.close]));
+
+  // 5. 按日期计算历史市值
+  const result = [];
+  for (const sh of shKline) {
+    const szClose = szMap.get(sh.date);
+    if (!szClose) continue; // 只保留两个市场都有数据的日期
+
+    const shRatio = sh.close / latestSH;
+    const szRatio = szClose / latestSZ;
+    const avgRatio = (shRatio + szRatio) / 2;
+
+    const totalValue = currentSH * shRatio + currentSZ * szRatio + currentBJ * avgRatio;
+
+    // GDP: 取当年值（简化处理）
+    const year = parseInt(sh.date.substring(0, 4));
+    const gdp = getGDPForYear(year);
+
+    result.push({
+      date: sh.date,
+      totalValue: Math.round(totalValue * 100) / 100,
+      gdp: gdp,
+      ratio: gdp > 0 ? Math.round((totalValue / gdp) * 10000) / 10000 : 0,
+    });
+  }
+
+  return result;
+}
+
+// GDP年度数据（万亿元，用于服务端计算）
+const GDP_BY_YEAR = {
+  2000: 10.0, 2001: 11.0, 2002: 12.0, 2003: 13.6, 2004: 16.0,
+  2005: 18.5, 2006: 21.9, 2007: 27.0, 2008: 32.0, 2009: 34.9,
+  2010: 41.2, 2011: 48.9, 2012: 54.0, 2013: 59.3, 2014: 64.4,
+  2015: 68.9, 2016: 74.4, 2017: 83.2, 2018: 91.9, 2019: 98.7,
+  2020: 101.6, 2021: 114.4, 2022: 121.0, 2023: 126.1, 2024: 134.9,
+  2025: 134.9, 2026: 134.9 * 1.05,
+};
+
+function getGDPForYear(year) {
+  return GDP_BY_YEAR[year] || (year >= 2026 ? 134.9 * Math.pow(1.05, year - 2025) : 50);
+}
+
+// API: 获取指数K线
+app.get('/api/index/kline', async (req, res) => {
+  try {
+    const { symbol, limit = 500 } = req.query;
+    if (!symbol) {
+      return res.json({ success: false, error: '缺少symbol参数' });
+    }
+    const data = await getIndexKline(symbol, parseInt(limit));
+    res.json({ success: true, data });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// API: 获取市值历史数据
+app.get('/api/market-cap/history', async (req, res) => {
+  try {
+    const { limit = 500 } = req.query;
+    const data = await getMarketCapHistory(parseInt(limit));
+    res.json({ success: true, data });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`Market API server running on http://localhost:${PORT}`);
   console.log(`Available endpoints:`);
   console.log(`  GET /api/total-market-cap`);
+  console.log(`  GET /api/market-cap/history?limit=500`);
+  console.log(`  GET /api/index/kline?symbol=sh000001&limit=500`);
   console.log(`  GET /api/stock/search?keyword=xxx`);
   console.log(`  GET /api/stock/kline?secid=x.xxxxxx&limit=500`);
   console.log(`  GET /api/stock/realtime?secid=x.xxxxxx`);

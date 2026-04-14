@@ -50,17 +50,15 @@ export const MarketValueChart: React.FC<MarketValueChartProps> = ({ data, select
     const stockScaleFactors: Record<string, { price: number; pe: number }> = {};
     for (const stock of selectedStocks) {
       const prices = stock.klines.map(k => k.close);
-      const pes = stock.klines.map(k => {
-        // 估算PE: 假设每股收益相对稳定，PE = 价格 / 每股收益
-        // 这里简化处理，使用价格与平均价格的比值来估算相对PE变化
+      const basePE = stock.realtime?.pe || 0;
+      const pes = basePE > 0 ? stock.klines.map(k => {
         const avgPrice = prices.reduce((a, b) => a + b, 0) / prices.length;
-        const pe = stock.realtime?.pe || 20;
-        return pe * (k.close / avgPrice);
-      });
+        return basePE * (k.close / avgPrice);
+      }) : [];
 
       stockScaleFactors[stock.info.secid] = {
         price: calculateStockScaleFactor(prices, marketValues),
-        pe: calculateStockScaleFactor(pes.filter(p => p > 0), marketValues) * 0.5, // PE量纲更小
+        pe: pes.length > 0 ? calculateStockScaleFactor(pes, marketValues) * 0.5 : 1,
       };
     }
 
@@ -137,12 +135,12 @@ export const MarketValueChart: React.FC<MarketValueChartProps> = ({ data, select
 
       // 准备股票的日期-价格映射
       const priceMap = new Map(stock.klines.map(k => [k.date, k.close]));
-      const peMap = new Map(stock.klines.map(k => {
-        const avgPrice = stock.klines.reduce((sum, kk) => sum + kk.close, 0) / stock.klines.length;
-        const basePE = stock.realtime?.pe || 20;
+      const basePE = stock.realtime?.pe || 0;
+      const avgPrice = stock.klines.reduce((sum, kk) => sum + kk.close, 0) / stock.klines.length;
+      const peMap = new Map(basePE > 0 ? stock.klines.map(k => {
         const estimatedPE = basePE * (k.close / avgPrice);
         return [k.date, estimatedPE];
-      }));
+      }) : []);
 
       // 股票价格线（使用右Y轴2）
       const stockPriceData = dates.map(date => {
@@ -308,10 +306,11 @@ export const MarketValueChart: React.FC<MarketValueChartProps> = ({ data, select
             const priceMap = new Map(stock.klines.map(k => [k.date, k.close]));
             const price = priceMap.get(date);
             if (price !== undefined) {
-              const avgPrice = stock.klines.reduce((sum, k) => sum + k.close, 0) / stock.klines.length;
-              const basePE = stock.realtime?.pe || 20;
-              const estimatedPE = basePE * (price / avgPrice);
-              html += `<div style="margin: 4px 0;">${stock.info.name}: <span style="color: ${stock.color}; font-weight: bold;">¥${price.toFixed(2)}</span> <span style="color: ${stock.color}; opacity: 0.7;">PE:${estimatedPE.toFixed(1)}</span></div>`;
+              const currency = stock.info.isAshare === false ? 'HK$' : '¥';
+              const stockBasePE = stock.realtime?.pe || 0;
+              const stockAvgPrice = stock.klines.reduce((sum, k) => sum + k.close, 0) / stock.klines.length;
+              const peStr = stockBasePE > 0 ? ` <span style="color: ${stock.color}; opacity: 0.7;">PE:${(stockBasePE * (price / stockAvgPrice)).toFixed(1)}</span>` : '';
+              html += `<div style="margin: 4px 0;">${stock.info.name}: <span style="color: ${stock.color}; font-weight: bold;">${currency}${price.toFixed(2)}</span>${peStr}</div>`;
             }
           }
 

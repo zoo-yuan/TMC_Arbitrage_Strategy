@@ -1,13 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
-import { getGDPForDate, GDP_RATIOS } from '../data/gdpData';
-import { generateIndexData, type IndexType } from '../data/indexData';
+import { GDP_RATIOS } from '../data/gdpData';
+import { INDEX_CONFIG, type IndexType } from '../data/indexData';
 
 export interface MarketDataPoint {
   date: string;
   totalValue: number; // 万亿元
   gdp: number; // 当年GDP
   ratio: number; // totalValue / gdp
-  indexValues?: Record<IndexType, number>; // 指数点位（原始值）
+  indexValues?: Record<IndexType, number>; // 指数点位（真实值）
 }
 
 export interface RealtimeMarketCap {
@@ -17,42 +17,6 @@ export interface RealtimeMarketCap {
   sz: { name: string; total: string };
   bj: { name: string; total: string };
   timestamp: string;
-}
-
-// 中国A股总市值历史数据（单位：万亿元人民币）
-// 参考真实历史数据
-const YEARLY_AVG_MARKET_CAP: Record<number, number> = {
-  2000: 5.0,
-  2001: 4.3,
-  2002: 3.8,
-  2003: 4.2,
-  2004: 3.7,
-  2005: 3.2,  // 熊市底部
-  2006: 7.0,
-  2007: 32.0, // 牛市顶点
-  2008: 12.0, // 金融危机
-  2009: 24.0,
-  2010: 26.5,
-  2011: 21.0,
-  2012: 23.0,
-  2013: 24.0,
-  2014: 37.0,
-  2015: 53.0, // 牛市顶点
-  2016: 50.0,
-  2017: 56.0,
-  2018: 43.0, // 贸易战
-  2019: 59.0,
-  2020: 79.0,
-  2021: 92.0, // 结构牛顶点
-  2022: 78.0,
-  2023: 82.0,
-  2024: 85.0,
-  2025: 88.0, // 2025年预估
-  2026: 92.0, // 2026年预估
-};
-
-function getYearlyAvgMarketCap(year: number): number {
-  return YEARLY_AVG_MARKET_CAP[year] || 50;
 }
 
 // 获取实时市值
@@ -83,7 +47,6 @@ export function useRealtimeMarketCap() {
     };
 
     fetchData();
-    // 每30秒刷新一次
     const interval = setInterval(fetchData, 30000);
     return () => { mounted = false; clearInterval(interval); };
   }, []);
@@ -91,87 +54,91 @@ export function useRealtimeMarketCap() {
   return { realtimeCap, loading, error };
 }
 
-// 生成历史市值数据（不包含今天，今天用实时数据）
-function generateHistoricalMarketData(
-  startDate: Date,
-  endDate: Date,
-  selectedIndices: IndexType[] = []
-): MarketDataPoint[] {
-  const data: MarketDataPoint[] = [];
-  const current = new Date(startDate);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+// 获取市值历史数据（从服务端API）
+function useMarketCapHistory(limit: number) {
+  const [data, setData] = useState<MarketDataPoint[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // 预生成指数数据
-  const indexDataMap: Record<IndexType, ReturnType<typeof generateIndexData>> = {
-    SHCOMP: selectedIndices.includes('SHCOMP') ? generateIndexData(startDate, endDate, 'SHCOMP') : [],
-    ZS2000: selectedIndices.includes('ZS2000') ? generateIndexData(startDate, endDate, 'ZS2000') : [],
-    ZS500: selectedIndices.includes('ZS500') ? generateIndexData(startDate, endDate, 'ZS500') : [],
-    HS300: selectedIndices.includes('HS300') ? generateIndexData(startDate, endDate, 'HS300') : [],
-    ZS1000: selectedIndices.includes('ZS1000') ? generateIndexData(startDate, endDate, 'ZS1000') : [],
-    ZSA500: selectedIndices.includes('ZSA500') ? generateIndexData(startDate, endDate, 'ZSA500') : [],
-    ZSHL: selectedIndices.includes('ZSHL') ? generateIndexData(startDate, endDate, 'ZSHL') : [],
-  };
+  useEffect(() => {
+    let mounted = true;
 
-  // 创建日期到指数值的映射
-  const indexValueMap: Record<IndexType, Map<string, number>> = {
-    SHCOMP: new Map(indexDataMap.SHCOMP.map(d => [d.date, d.value])),
-    ZS2000: new Map(indexDataMap.ZS2000.map(d => [d.date, d.value])),
-    ZS500: new Map(indexDataMap.ZS500.map(d => [d.date, d.value])),
-    HS300: new Map(indexDataMap.HS300.map(d => [d.date, d.value])),
-    ZS1000: new Map(indexDataMap.ZS1000.map(d => [d.date, d.value])),
-    ZSA500: new Map(indexDataMap.ZSA500.map(d => [d.date, d.value])),
-    ZSHL: new Map(indexDataMap.ZSHL.map(d => [d.date, d.value])),
-  };
-
-  while (current < today && current <= endDate) {
-    const year = current.getFullYear();
-    const month = current.getMonth();
-    const gdp = getGDPForDate(current);
-
-    const yearlyAvg = getYearlyAvgMarketCap(year);
-
-    let intraYearFactor = 1;
-    if (year === 2007) {
-      intraYearFactor = month >= 9 ? 1.3 : (month >= 6 ? 1.2 : 1.0);
-    } else if (year === 2008) {
-      intraYearFactor = month >= 9 ? 0.7 : (month >= 6 ? 0.85 : 1.0);
-    } else if (year === 2015) {
-      intraYearFactor = month >= 5 ? 1.25 : (month >= 3 ? 1.15 : 1.0);
-    } else if (year === 2018) {
-      intraYearFactor = month >= 9 ? 0.75 : (month >= 6 ? 0.9 : 1.0);
-    } else if (year === 2021) {
-      intraYearFactor = month >= 1 && month <= 2 ? 1.15 : (month >= 3 && month <= 5 ? 1.1 : (month > 9 ? 0.9 : 1.0));
-    } else if (year === 2024) {
-      intraYearFactor = month >= 8 ? 1.15 : (month >= 5 ? 1.05 : 1.0);
-    }
-
-    const noise = 1 + (Math.random() - 0.5) * 0.08;
-    const totalValue = yearlyAvg * intraYearFactor * noise;
-
-    const dateStr = current.toISOString().split('T')[0];
-
-    // 构建指数值对象
-    const indexValues: Partial<Record<IndexType, number>> = {};
-    for (const idx of selectedIndices) {
-      const value = indexValueMap[idx].get(dateStr);
-      if (value !== undefined) {
-        indexValues[idx] = value;
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`http://localhost:3000/api/market-cap/history?limit=${limit}`);
+        const json = await res.json();
+        if (mounted && json.success) {
+          setData(json.data || []);
+        } else if (mounted) {
+          setError(json.error || '获取历史数据失败');
+        }
+      } catch (e: any) {
+        if (mounted) setError(e.message);
+      } finally {
+        if (mounted) setLoading(false);
       }
-    }
+    };
 
-    data.push({
-      date: dateStr,
-      totalValue: Math.round(totalValue * 100) / 100,
-      gdp: gdp,
-      ratio: Math.round((totalValue / gdp) * 10000) / 10000,
-      indexValues: selectedIndices.length > 0 ? indexValues as Record<IndexType, number> : undefined,
-    });
+    fetchData();
+  }, [limit]);
 
-    current.setDate(current.getDate() + 1);
+  return { data, loading, error };
+}
+
+// 获取多个指数K线数据（单个 hook，不违反 React 规则）
+function useIndexKlines(indices: IndexType[], limit: number) {
+  const [indexData, setIndexData] = useState<Record<string, { date: string; close: number }[]>>({});
+
+  useEffect(() => {
+    if (!indices.length) return;
+
+    let mounted = true;
+    const fetchData = async () => {
+      const results: Record<string, { date: string; close: number }[]> = {};
+      // 并行请求所有选中指数
+      await Promise.all(indices.map(async (idx) => {
+        const config = INDEX_CONFIG[idx];
+        if (!config?.sinaSymbol) return;
+        try {
+          const res = await fetch(`http://localhost:3000/api/index/kline?symbol=${config.sinaSymbol}&limit=${limit}`);
+          const json = await res.json();
+          if (json.success) {
+            results[idx] = json.data || [];
+          }
+        } catch (e) {
+          console.error(`Failed to fetch index ${idx}:`, e);
+        }
+      }));
+
+      if (mounted) {
+        setIndexData(prev => ({ ...prev, ...results }));
+      }
+    };
+
+    fetchData();
+    return () => { mounted = false; };
+  }, [indices.join(','), limit]);
+
+  return indexData;
+}
+
+// 根据周期计算需要的日数
+function periodToLimit(period: string, customRange?: { start: Date; end: Date }): number {
+  if (period === 'CUSTOM' && customRange) {
+    const days = Math.ceil((customRange.end.getTime() - customRange.start.getTime()) / (1000 * 60 * 60 * 24));
+    return Math.max(days, 30);
   }
-
-  return data;
+  switch (period) {
+    case '1M': return 30;
+    case '6M': return 180;
+    case '1Y': return 365;
+    case '3Y': return 1100;
+    case '5Y': return 1800;
+    case '10Y': return 3650;
+    case 'ALL': return 5000;
+    default: return 5000;
+  }
 }
 
 export function useMarketData(
@@ -180,84 +147,61 @@ export function useMarketData(
   selectedIndices: IndexType[] = []
 ) {
   const { realtimeCap } = useRealtimeMarketCap();
+  const limit = periodToLimit(period, customRange);
+
+  // 获取市值历史数据
+  const { data: historyData } = useMarketCapHistory(limit);
+
+  // 获取指数K线数据（单个hook调用，不违反规则）
+  const indexDataMap = useIndexKlines(selectedIndices, limit);
 
   return useMemo(() => {
-    let endDate: Date;
-    let startDate: Date;
+    if (!historyData.length) return [];
 
-    if (period === 'CUSTOM' && customRange) {
-      endDate = new Date(customRange.end);
-      startDate = new Date(customRange.start);
-    } else {
-      endDate = new Date();
-      endDate.setHours(0, 0, 0, 0);
+    // 构建指数日期映射
+    const indexDateMaps: Record<string, Map<string, number>> = {};
+    for (const idx of selectedIndices) {
+      indexDateMaps[idx] = new Map(
+        (indexDataMap[idx] || []).map(d => [d.date, d.close])
+      );
+    }
 
-      switch (period) {
-        case '1M':
-          startDate = new Date(endDate);
-          startDate.setMonth(startDate.getMonth() - 1);
-          break;
-        case '6M':
-          startDate = new Date(endDate);
-          startDate.setMonth(startDate.getMonth() - 6);
-          break;
-        case '1Y':
-          startDate = new Date(endDate);
-          startDate.setFullYear(startDate.getFullYear() - 1);
-          break;
-        case '3Y':
-          startDate = new Date(endDate);
-          startDate.setFullYear(startDate.getFullYear() - 3);
-          break;
-        case '5Y':
-          startDate = new Date(endDate);
-          startDate.setFullYear(startDate.getFullYear() - 5);
-          break;
-        case '10Y':
-          startDate = new Date(endDate);
-          startDate.setFullYear(startDate.getFullYear() - 10);
-          break;
-        case 'ALL':
-        default:
-          startDate = new Date('2000-01-01');
-          break;
+    // 合并指数数据到市值数据
+    const merged = historyData.map(d => {
+      const indexValues: Partial<Record<IndexType, number>> = {};
+      for (const idx of selectedIndices) {
+        const val = indexDateMaps[idx]?.get(d.date);
+        if (val !== undefined) {
+          indexValues[idx] = val;
+        }
+      }
+
+      return {
+        ...d,
+        indexValues: selectedIndices.length > 0 ? indexValues as Record<IndexType, number> : undefined,
+      };
+    });
+
+    // 用实时数据替换最后一天
+    if (realtimeCap) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const lastIdx = merged.length - 1;
+      if (lastIdx >= 0) {
+        const lastDate = merged[lastIdx].date;
+        if (lastDate === todayStr || lastDate <= todayStr) {
+          const total = parseFloat(realtimeCap.total);
+          const gdp = merged[lastIdx].gdp;
+          merged[lastIdx] = {
+            ...merged[lastIdx],
+            totalValue: total,
+            ratio: gdp > 0 ? Math.round((total / gdp) * 10000) / 10000 : merged[lastIdx].ratio,
+          };
+        }
       }
     }
 
-    const historicalData = generateHistoricalMarketData(startDate, endDate, selectedIndices);
-
-    // 如果包含今天，用实时数据替换今天的值
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    if (realtimeCap && today >= startDate && today <= endDate) {
-      const todayStr = today.toISOString().split('T')[0];
-      const todayIndex = historicalData.findIndex(d => d.date === todayStr);
-      const gdp = getGDPForDate(today);
-
-      // 保留原有的指数值
-      const existingIndexValues = todayIndex >= 0 ? historicalData[todayIndex].indexValues : undefined;
-
-      if (todayIndex >= 0) {
-        historicalData[todayIndex] = {
-          date: todayStr,
-          totalValue: parseFloat(realtimeCap.total),
-          gdp: gdp,
-          ratio: Math.round((parseFloat(realtimeCap.total) / gdp) * 10000) / 10000,
-          indexValues: existingIndexValues,
-        };
-      } else {
-        historicalData.push({
-          date: todayStr,
-          totalValue: parseFloat(realtimeCap.total),
-          gdp: gdp,
-          ratio: Math.round((parseFloat(realtimeCap.total) / gdp) * 10000) / 10000,
-          indexValues: existingIndexValues,
-        });
-      }
-    }
-
-    return historicalData;
-  }, [period, customRange, realtimeCap, selectedIndices]);
+    return merged;
+  }, [historyData, realtimeCap, selectedIndices, indexDataMap]);
 }
 
 export { GDP_RATIOS };
