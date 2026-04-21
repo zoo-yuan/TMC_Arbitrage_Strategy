@@ -32,8 +32,8 @@ export const gdpData: GDPData[] = [
   { year: 2022, gdp: 121.0 },
   { year: 2023, gdp: 126.1 },
   { year: 2024, gdp: 134.9 },
-  { year: 2025, gdp: 134.9, isEstimate: true }, // 暂用2024年数据
-  { year: 2026, gdp: 134.9 * 1.05, isEstimate: true }, // 2025年GDP * 1.05
+  { year: 2025, gdp: 134.9 * 1.05, isEstimate: true }, // 2024年GDP × 1.05 ≈ 141.6
+  { year: 2026, gdp: 134.9 * 1.05 * 1.05, isEstimate: true }, // 按年增5%估算
 ];
 
 export function getGDPByYear(year: number): GDPData | undefined {
