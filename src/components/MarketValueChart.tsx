@@ -10,9 +10,10 @@ interface MarketValueChartProps {
   data: MarketDataPoint[];
   selectedIndices: IndexType[];
   selectedStocks?: SelectedStock[];
+  showAvgPrice?: boolean;
 }
 
-export const MarketValueChart: React.FC<MarketValueChartProps> = ({ data, selectedIndices, selectedStocks = [] }) => {
+export const MarketValueChart: React.FC<MarketValueChartProps> = ({ data, selectedIndices, selectedStocks = [], showAvgPrice = false }) => {
   const getOption = useCallback(() => {
     if (!data.length) return {};
 
@@ -129,6 +130,36 @@ export const MarketValueChart: React.FC<MarketValueChartProps> = ({ data, select
       });
     }
 
+    // 添加平均股价系列（使用量纲转换映射到市值轴）
+    const avgPriceScaleFactor = (() => {
+      const avgPrices = sortedData.map(d => d.avgStockPrice).filter((v): v is number => v !== undefined);
+      if (avgPrices.length === 0) return 1;
+      const avgP = avgPrices.reduce((a, b) => a + b, 0) / avgPrices.length;
+      const avgM = marketValues.reduce((a, b) => a + b, 0) / marketValues.length;
+      return avgM / avgP;
+    })();
+
+    if (showAvgPrice) {
+      const avgPriceData = sortedData.map(d => {
+        const p = d.avgStockPrice;
+        return p !== undefined ? p * avgPriceScaleFactor : null;
+      });
+
+      series.push({
+        name: '平均股价',
+        type: 'line',
+        yAxisIndex: 0,
+        data: avgPriceData,
+        smooth: true,
+        symbol: 'none',
+        lineStyle: {
+          color: '#FF6347',
+          width: 2,
+        },
+        z: 6,
+      });
+    }
+
     // 添加股票系列
     for (const stock of selectedStocks) {
       const scaleFactor = stockScaleFactors[stock.info.secid];
@@ -190,6 +221,7 @@ export const MarketValueChart: React.FC<MarketValueChartProps> = ({ data, select
       '总市值',
       ...GDP_RATIOS.map(r => `${r}×GDP`),
       ...selectedIndices.map(idx => INDEX_CONFIG[idx].name),
+      ...(showAvgPrice ? ['平均股价'] : []),
       ...selectedStocks.flatMap(s => [`${s.info.name}(价)`, `${s.info.name}(PE)`]),
     ];
 
@@ -301,6 +333,11 @@ export const MarketValueChart: React.FC<MarketValueChartProps> = ({ data, select
             }
           }
 
+          // 添加平均股价信息
+          if (showAvgPrice && marketData.avgStockPrice !== undefined) {
+            html += `<div style="margin: 4px 0;">平均股价: <span style="color: #FF6347; font-weight: bold;">¥${marketData.avgStockPrice.toFixed(2)}</span></div>`;
+          }
+
           // 添加股票信息
           for (const stock of selectedStocks) {
             const priceMap = new Map(stock.klines.map(k => [k.date, k.close]));
@@ -367,7 +404,7 @@ export const MarketValueChart: React.FC<MarketValueChartProps> = ({ data, select
         },
       ],
     };
-  }, [data, selectedIndices, selectedStocks]);
+  }, [data, selectedIndices, selectedStocks, showAvgPrice]);
 
   return (
     <div className="w-full h-full min-h-[500px]">

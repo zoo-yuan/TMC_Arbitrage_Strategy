@@ -29,6 +29,7 @@ function App() {
     return today.toISOString().split('T')[0];
   });
   const [selectedIndices, setSelectedIndices] = useState<IndexType[]>([]);
+  const [showAvgPrice, setShowAvgPrice] = useState(false);
 
   // 股票搜索
   const [stockKeyword, setStockKeyword] = useState('');
@@ -42,7 +43,7 @@ function App() {
     end: new Date(customEndDate),
   } : undefined;
 
-  const data = useMarketData(period, customRange, selectedIndices);
+  const data = useMarketData(period, customRange, selectedIndices, showAvgPrice);
   const { realtimeCap, loading, error } = useRealtimeMarketCap();
 
   const latestData = data[data.length - 1];
@@ -185,6 +186,18 @@ function App() {
               );
             })}
             <span className="text-xs text-gray-400 ml-2">（指数点位将自动量纲转换以匹配市值曲线）</span>
+            <span className="text-gray-300 mx-2">|</span>
+            <label className="flex items-center gap-2 px-3 py-1.5 rounded-md cursor-pointer transition-colors hover:bg-gray-50">
+              <input
+                type="checkbox"
+                checked={showAvgPrice}
+                onChange={() => setShowAvgPrice(v => !v)}
+                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm font-medium" style={{ color: showAvgPrice ? '#FF6347' : '#666' }}>
+                平均股价
+              </span>
+            </label>
           </div>
         </div>
       </div>
@@ -318,6 +331,7 @@ function App() {
             data={data}
             selectedIndices={selectedIndices}
             selectedStocks={selectedStocks}
+            showAvgPrice={showAvgPrice}
           />
         </div>
       </main>

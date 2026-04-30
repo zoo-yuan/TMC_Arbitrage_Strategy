@@ -43,6 +43,7 @@ function getSSEMarketSummary() {
     return {
       totalValue: parseFloat(stockTotal.TOTAL_VALUE) * 1e8,  // 亿元 -> 元
       flowValue: parseFloat(stockTotal.NEGO_VALUE) * 1e8,
+      totalShares: parseFloat(stockTotal.TOTAL_ISSUE_VOL),   // 亿股
       stockCount: parseInt(stockTotal.LIST_COM_NUM),
       tradeDate: stockTotal.TRADE_DATE,
     };
@@ -637,6 +638,144 @@ app.get('/api/market-cap/history', async (req, res) => {
   }
 });
 
+// ============================================================
+// 平均股价历史数据
+// 平均股价 = A股总市值 / A股总股本
+// 沪市总股本从SSE API获取（支持历史日期查询）
+// 深市总股本用市场占比估算
+// ============================================================
+
+// 沪市指定日期的总股本和市值（亿元）
+function getSSEMarketByDate(dateStr) {
+  const url = `http://query.sse.com.cn/commonQuery.do?sqlId=COMMON_SSE_SJ_GPSJ_GPSJZM_TJSJ_L&PRODUCT_NAME=%E8%82%A1%E7%A5%A8&type=inParams&TRADE_DATE=${dateStr}`;
+  return httpGet(url, {
+    headers: { 'Referer': 'http://www.sse.com.cn/', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+  }).then(json => {
+    const stock = json.result?.['0'];
+    if (!stock || !stock.TOTAL_VALUE) return null;
+    return {
+      totalValue: parseFloat(stock.TOTAL_VALUE),  // 亿元
+      totalShares: parseFloat(stock.TOTAL_ISSUE_VOL), // 亿股
+      tradeDate: stock.TRADE_DATE,
+    };
+  }).catch(() => null);
+}
+
+// 计算深市总股本估算值（基于沪市已知数据和市场占比）
+function estimateSZShares(shTotalValue, shTotalShares, szTotalValue) {
+  // 假设沪深平均股价相近，用沪市平均股价估算深市总股本
+  const shAvgPrice = shTotalValue / shTotalShares;
+  return szTotalValue / shAvgPrice;
+}
+
+async function getAvgStockPriceHistory(limit = 500) {
+  // 1. 获取市值历史数据（含沪深分项）
+  const mcapHistory = await getMarketCapHistory(limit);
+  if (!mcapHistory.length) return [];
+
+  // 2. 获取当前沪市总股本
+  const currentSH = await getSSEMarketSummary();
+  const currentSHShares = currentSH.totalShares; // 亿股
+  const currentSHMcap = currentSH.totalValue / 1e8; // 亿元
+
+  // 3. 获取几个历史节点的沪市总股本（按年取样）
+  const sampleDates = {};
+  const years = new Set(mcapHistory.map(d => d.date.substring(0, 4)));
+  // 对每个年份取最后一个交易日的日期
+  for (const y of years) {
+    const yearData = mcapHistory.filter(d => d.date.startsWith(y));
+    if (yearData.length) {
+      sampleDates[y] = yearData[yearData.length - 1].date.replace(/-/g, '');
+    }
+  }
+
+  // 批量查询历史总股本（限制并发）
+  const shareByYear = {};
+  const dateKeys = Object.entries(sampleDates);
+  for (let i = 0; i < dateKeys.length; i += 3) {
+    const batch = dateKeys.slice(i, i + 3);
+    const results = await Promise.all(batch.map(async ([year, dateStr]) => {
+      const data = await getSSEMarketByDate(dateStr);
+      return { year, data };
+    }));
+    for (const { year, data } of results) {
+      if (data) shareByYear[year] = data.totalShares;
+    }
+  }
+  // 确保当前年份有数据
+  const currentYear = String(new Date().getFullYear());
+  if (!shareByYear[currentYear]) {
+    shareByYear[currentYear] = currentSHShares;
+  }
+
+  // 4. 对缺失年份做线性插值
+  const sortedYears = Object.keys(shareByYear).sort();
+  for (const y of years) {
+    if (!shareByYear[y]) {
+      // 找最近的两个已知年份做插值
+      const lower = sortedYears.filter(sy => sy < y).pop();
+      const upper = sortedYears.find(sy => sy > y);
+      if (lower && upper) {
+        const ratio = (y - lower) / (upper - lower);
+        shareByYear[y] = shareByYear[lower] + (shareByYear[upper] - shareByYear[lower]) * ratio;
+      } else if (lower) {
+        shareByYear[y] = shareByYear[lower];
+      } else if (upper) {
+        shareByYear[y] = shareByYear[upper];
+      }
+    }
+  }
+
+  // 5. 计算每日平均股价
+  // 需要沪深市值分项来估算深市股本
+  // 简化：使用当前沪深市值比来分配历史市值
+  const currentSHTotal = currentSH.totalValue / 1e12; // 万亿
+  const currentSZTotal = (currentMCapCache?.breakdown?.sz?.total || 0) / 1e12;
+  const shRatio = currentSHTotal / (currentSHTotal + currentSZTotal || 1);
+
+  const result = [];
+  for (const d of mcapHistory) {
+    const year = d.date.substring(0, 4);
+    const shShares = shareByYear[year];
+    if (!shShares) continue;
+
+    // 估算：沪市市值 = 总市值 × 沪市占比，深市市值 = 总市值 × 深市占比
+    const shMcap = d.totalValue * shRatio * 10000; // 万亿→亿元
+    const szMcap = d.totalValue * (1 - shRatio) * 10000;
+    const szShares = estimateSZShares(currentSHMcap, currentSHShares, szMcap);
+
+    const totalShares = shShares + szShares; // 亿股
+    const totalMcap = d.totalValue * 10000; // 万亿→亿元
+    const avgPrice = totalMcap / totalShares;
+
+    result.push({
+      date: d.date,
+      avgPrice: Math.round(avgPrice * 1000) / 1000,
+    });
+  }
+
+  return result;
+}
+
+// 缓存当前市值分项（getAvgStockPriceHistory需要）
+let currentMCapCache = null;
+const _originalGetTotal = getTotalAMarketCap;
+
+// API: 获取平均股价历史数据
+app.get('/api/avg-stock-price/history', async (req, res) => {
+  try {
+    const { limit = 500 } = req.query;
+    // 获取当前市值分项（缓存）
+    if (!currentMCapCache) {
+      currentMCapCache = await _originalGetTotal();
+    }
+    const data = await getAvgStockPriceHistory(parseInt(limit));
+    res.json({ success: true, data });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`Market API server running on http://localhost:${PORT}`);
@@ -647,4 +786,5 @@ app.listen(PORT, () => {
   console.log(`  GET /api/stock/search?keyword=xxx`);
   console.log(`  GET /api/stock/kline?secid=x.xxxxxx&limit=500`);
   console.log(`  GET /api/stock/realtime?secid=x.xxxxxx`);
+  console.log(`  GET /api/avg-stock-price/history?limit=500`);
 });

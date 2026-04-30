@@ -8,6 +8,7 @@ export interface MarketDataPoint {
   gdp: number; // 当年GDP
   ratio: number; // totalValue / gdp
   indexValues?: Record<IndexType, number>; // 指数点位（真实值）
+  avgStockPrice?: number; // 全市场平均股价（元）
 }
 
 export interface RealtimeMarketCap {
@@ -123,6 +124,33 @@ function useIndexKlines(indices: IndexType[], limit: number) {
   return indexData;
 }
 
+// 获取平均股价历史数据
+function useAvgStockPrice(limit: number, enabled: boolean) {
+  const [data, setData] = useState<{ date: string; avgPrice: number }[]>([]);
+
+  useEffect(() => {
+    if (!enabled) { setData([]); return; }
+
+    let mounted = true;
+    const fetchData = async () => {
+      try {
+        const res = await fetch(`http://localhost:3000/api/avg-stock-price/history?limit=${limit}`);
+        const json = await res.json();
+        if (mounted && json.success) {
+          setData(json.data || []);
+        }
+      } catch (e) {
+        console.error('Failed to fetch avg stock price:', e);
+      }
+    };
+
+    fetchData();
+    return () => { mounted = false; };
+  }, [limit, enabled]);
+
+  return data;
+}
+
 // 根据周期计算需要的日数
 function periodToLimit(period: string, customRange?: { start: Date; end: Date }): number {
   if (period === 'CUSTOM' && customRange) {
@@ -144,7 +172,8 @@ function periodToLimit(period: string, customRange?: { start: Date; end: Date })
 export function useMarketData(
   period: '1M' | '6M' | '1Y' | '3Y' | '5Y' | '10Y' | 'ALL' | 'CUSTOM',
   customRange?: { start: Date; end: Date },
-  selectedIndices: IndexType[] = []
+  selectedIndices: IndexType[] = [],
+  showAvgPrice: boolean = false
 ) {
   const { realtimeCap } = useRealtimeMarketCap();
   const limit = periodToLimit(period, customRange);
@@ -154,6 +183,9 @@ export function useMarketData(
 
   // 获取指数K线数据（单个hook调用，不违反规则）
   const indexDataMap = useIndexKlines(selectedIndices, limit);
+
+  // 获取平均股价数据
+  const avgPriceData = useAvgStockPrice(limit, showAvgPrice);
 
   return useMemo(() => {
     if (!historyData.length) return [];
@@ -165,6 +197,9 @@ export function useMarketData(
         (indexDataMap[idx] || []).map(d => [d.date, d.close])
       );
     }
+
+    // 构建平均股价日期映射
+    const avgPriceMap = new Map(avgPriceData.map(d => [d.date, d.avgPrice]));
 
     // 合并指数数据到市值数据
     const merged = historyData.map(d => {
@@ -179,6 +214,7 @@ export function useMarketData(
       return {
         ...d,
         indexValues: selectedIndices.length > 0 ? indexValues as Record<IndexType, number> : undefined,
+        avgStockPrice: avgPriceMap.get(d.date),
       };
     });
 
@@ -201,7 +237,7 @@ export function useMarketData(
     }
 
     return merged;
-  }, [historyData, realtimeCap, selectedIndices, indexDataMap]);
+  }, [historyData, realtimeCap, selectedIndices, indexDataMap, avgPriceData]);
 }
 
 export { GDP_RATIOS };
