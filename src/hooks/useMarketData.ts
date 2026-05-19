@@ -164,8 +164,8 @@ function periodToLimit(period: string, customRange?: { start: Date; end: Date })
     case '3Y': return 750;
     case '5Y': return 1250;
     case '10Y': return 2500;
-    case 'ALL': return 5000;
-    default: return 5000;
+    case 'ALL': return 8000;
+    default: return 8000;
   }
 }
 
