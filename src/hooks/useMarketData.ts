@@ -151,19 +151,19 @@ function useAvgStockPrice(limit: number, enabled: boolean) {
   return data;
 }
 
-// 根据周期计算需要的日数
+// 根据周期计算需要的交易日数（1年约250个交易日）
 function periodToLimit(period: string, customRange?: { start: Date; end: Date }): number {
   if (period === 'CUSTOM' && customRange) {
-    const days = Math.ceil((customRange.end.getTime() - customRange.start.getTime()) / (1000 * 60 * 60 * 24));
-    return Math.max(days, 30);
+    const calendarDays = Math.ceil((customRange.end.getTime() - customRange.start.getTime()) / (1000 * 60 * 60 * 24));
+    return Math.max(Math.ceil(calendarDays * 250 / 365), 30);
   }
   switch (period) {
-    case '1M': return 30;
-    case '6M': return 180;
-    case '1Y': return 365;
-    case '3Y': return 1100;
-    case '5Y': return 1800;
-    case '10Y': return 3650;
+    case '1M': return 22;
+    case '6M': return 125;
+    case '1Y': return 250;
+    case '3Y': return 750;
+    case '5Y': return 1250;
+    case '10Y': return 2500;
     case 'ALL': return 5000;
     default: return 5000;
   }
