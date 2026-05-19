@@ -93,7 +93,7 @@ export const MarketValueChart: React.FC<MarketValueChartProps> = ({ data, select
       ...GDP_RATIOS.map(ratio => ({
         name: `${ratio}×GDP`,
         type: 'line' as const,
-        data: sortedData.map(d => d.gdp * ratio),
+        data: sortedData.map(d => d.gdp > 0 ? d.gdp * ratio : null),
         smooth: false,
         symbol: 'none',
         lineStyle: {

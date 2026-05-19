@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { MarketValueChart } from './components/MarketValueChart';
-import { useMarketData, useRealtimeMarketCap, GDP_RATIOS, type IndexType } from './hooks/useMarketData';
+import { useMarketData, useRealtimeMarketCap, GDP_RATIOS, type IndexType, periodToLimit } from './hooks/useMarketData';
 import { GDP_RATIO_COLORS } from './data/gdpData';
 import { INDEX_CONFIG } from './data/indexData';
 import { useStockSearch, useSelectedStocks, type StockInfo } from './hooks/useStockData';
@@ -69,11 +69,12 @@ function App() {
   }, [stockKeyword, search]);
 
   // 选择股票
+  const stockLimit = periodToLimit(period, customRange);
   const handleSelectStock = useCallback(async (stock: StockInfo) => {
-    await addStock(stock);
+    await addStock(stock, stockLimit);
     setStockKeyword('');
     setShowSearchResults(false);
-  }, [addStock]);
+  }, [addStock, stockLimit]);
 
   return (
     <div className="min-h-screen bg-gray-100">

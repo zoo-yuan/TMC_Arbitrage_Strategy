@@ -152,7 +152,7 @@ function useAvgStockPrice(limit: number, enabled: boolean) {
 }
 
 // 根据周期计算需要的交易日数（1年约250个交易日）
-function periodToLimit(period: string, customRange?: { start: Date; end: Date }): number {
+export function periodToLimit(period: string, customRange?: { start: Date; end: Date }): number {
   if (period === 'CUSTOM' && customRange) {
     const calendarDays = Math.ceil((customRange.end.getTime() - customRange.start.getTime()) / (1000 * 60 * 60 * 24));
     return Math.max(Math.ceil(calendarDays * 250 / 365), 30);

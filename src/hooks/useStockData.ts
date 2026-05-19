@@ -144,7 +144,7 @@ export function useStockRealtime(secid: string) {
 export function useSelectedStocks() {
   const [stocks, setStocks] = useState<SelectedStock[]>([]);
 
-  const addStock = useCallback(async (info: StockInfo) => {
+  const addStock = useCallback(async (info: StockInfo, limit = 8000) => {
     // 检查是否已存在
     if (stocks.some(s => s.info.secid === info.secid)) {
       return;
@@ -152,7 +152,7 @@ export function useSelectedStocks() {
 
     // 获取历史数据
     try {
-      const res = await fetch(`http://localhost:3000/api/stock/kline?secid=${info.secid}&code=${info.code}&market=${info.market}&limit=500`);
+      const res = await fetch(`http://localhost:3000/api/stock/kline?secid=${info.secid}&code=${info.code}&market=${info.market}&limit=${limit}`);
       const json = await res.json();
 
       if (json.success) {
