@@ -11,9 +11,10 @@ interface MarketValueChartProps {
   selectedIndices: IndexType[];
   selectedStocks?: SelectedStock[];
   showAvgPrice?: boolean;
+  showETFShares?: boolean;
 }
 
-export const MarketValueChart: React.FC<MarketValueChartProps> = ({ data, selectedIndices, selectedStocks = [], showAvgPrice = false }) => {
+export const MarketValueChart: React.FC<MarketValueChartProps> = ({ data, selectedIndices, selectedStocks = [], showAvgPrice = false, showETFShares = false }) => {
   const getOption = useCallback(() => {
     if (!data.length) return {};
 
@@ -160,6 +161,35 @@ export const MarketValueChart: React.FC<MarketValueChartProps> = ({ data, select
       });
     }
 
+    // 添加ETF300份额系列（阶梯线，映射到市值轴）
+    if (showETFShares) {
+      const etfSharesValues = sortedData.map(d => d.etfShares).filter((v): v is number => v !== undefined);
+      if (etfSharesValues.length > 0) {
+        const avgShares = etfSharesValues.reduce((a, b) => a + b, 0) / etfSharesValues.length;
+        const avgM = marketValues.reduce((a, b) => a + b, 0) / marketValues.length;
+        const etfScaleFactor = avgM / avgShares;
+
+        const etfData = sortedData.map(d => {
+          const s = d.etfShares;
+          return s !== undefined ? s * etfScaleFactor : null;
+        });
+
+        series.push({
+          name: 'ETF300份额',
+          type: 'line',
+          yAxisIndex: 0,
+          data: etfData,
+          step: 'start',
+          symbol: 'none',
+          lineStyle: {
+            color: '#9B59B6',
+            width: 2.5,
+          },
+          z: 6,
+        });
+      }
+    }
+
     // 添加股票系列
     for (const stock of selectedStocks) {
       const scaleFactor = stockScaleFactors[stock.info.secid];
@@ -222,6 +252,7 @@ export const MarketValueChart: React.FC<MarketValueChartProps> = ({ data, select
       ...GDP_RATIOS.map(r => `${r}×GDP`),
       ...selectedIndices.map(idx => INDEX_CONFIG[idx].name),
       ...(showAvgPrice ? ['平均股价'] : []),
+      ...(showETFShares ? ['ETF300份额'] : []),
       ...selectedStocks.flatMap(s => [`${s.info.name}(价)`, `${s.info.name}(PE)`]),
     ];
 
@@ -351,6 +382,12 @@ export const MarketValueChart: React.FC<MarketValueChartProps> = ({ data, select
             }
           }
 
+          // 添加ETF300份额信息
+          if (showETFShares && marketData.etfShares !== undefined) {
+            const netAssetsStr = marketData.etfNetAssets !== undefined ? ` | 净资产:${marketData.etfNetAssets.toFixed(0)}亿` : '';
+            html += `<div style="margin: 4px 0;">ETF300份额: <span style="color: #9B59B6; font-weight: bold;">${marketData.etfShares.toFixed(1)}亿份</span><span style="color: #999; font-size: 11px;">${netAssetsStr}</span></div>`;
+          }
+
           return html;
         },
       },
@@ -404,7 +441,7 @@ export const MarketValueChart: React.FC<MarketValueChartProps> = ({ data, select
         },
       ],
     };
-  }, [data, selectedIndices, selectedStocks, showAvgPrice]);
+  }, [data, selectedIndices, selectedStocks, showAvgPrice, showETFShares]);
 
   return (
     <div className="w-full h-full min-h-[500px]">

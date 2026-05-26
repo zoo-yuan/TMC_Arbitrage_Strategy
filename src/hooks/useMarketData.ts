@@ -9,6 +9,8 @@ export interface MarketDataPoint {
   ratio: number; // totalValue / gdp
   indexValues?: Record<IndexType, number>; // 指数点位（真实值）
   avgStockPrice?: number; // 全市场平均股价（元）
+  etfShares?: number; // ETF300总份额（亿份）
+  etfNetAssets?: number; // ETF300净资产（亿元）
 }
 
 export interface RealtimeMarketCap {
@@ -151,6 +153,33 @@ function useAvgStockPrice(limit: number, enabled: boolean) {
   return data;
 }
 
+// 获取ETF300份额历史数据（季度数据，全量70个季度）
+function useETFShares(enabled: boolean) {
+  const [data, setData] = useState<{ date: string; totalShares: number; netAssets: number }[]>([]);
+
+  useEffect(() => {
+    if (!enabled) { setData([]); return; }
+
+    let mounted = true;
+    const fetchData = async () => {
+      try {
+        const res = await fetch('http://localhost:3000/api/etf/shares-history?code=510300');
+        const json = await res.json();
+        if (mounted && json.success) {
+          setData(json.data || []);
+        }
+      } catch (e) {
+        console.error('Failed to fetch ETF shares:', e);
+      }
+    };
+
+    fetchData();
+    return () => { mounted = false; };
+  }, [enabled]);
+
+  return data;
+}
+
 // 根据周期计算需要的交易日数（1年约250个交易日）
 export function periodToLimit(period: string, customRange?: { start: Date; end: Date }): number {
   if (period === 'CUSTOM' && customRange) {
@@ -173,7 +202,8 @@ export function useMarketData(
   period: '1M' | '6M' | '1Y' | '3Y' | '5Y' | '10Y' | 'ALL' | 'CUSTOM',
   customRange?: { start: Date; end: Date },
   selectedIndices: IndexType[] = [],
-  showAvgPrice: boolean = false
+  showAvgPrice: boolean = false,
+  showETFShares: boolean = false
 ) {
   const { realtimeCap } = useRealtimeMarketCap();
   const limit = periodToLimit(period, customRange);
@@ -186,6 +216,9 @@ export function useMarketData(
 
   // 获取平均股价数据
   const avgPriceData = useAvgStockPrice(limit, showAvgPrice);
+
+  // 获取ETF份额数据
+  const etfSharesData = useETFShares(showETFShares);
 
   return useMemo(() => {
     if (!historyData.length) return [];
@@ -201,6 +234,22 @@ export function useMarketData(
     // 构建平均股价日期映射
     const avgPriceMap = new Map(avgPriceData.map(d => [d.date, d.avgPrice]));
 
+    // 构建ETF份额映射：对每个交易日，取最近的季度数据
+    const etfSharesMap = new Map<string, { totalShares: number; netAssets: number }>();
+    if (etfSharesData.length > 0) {
+      // etfSharesData已按日期升序排列
+      let lastIdx = 0;
+      for (const d of historyData) {
+        // 找到 <= d.date 的最晚季度数据
+        while (lastIdx < etfSharesData.length - 1 && etfSharesData[lastIdx + 1].date <= d.date) {
+          lastIdx++;
+        }
+        if (etfSharesData[lastIdx].date <= d.date) {
+          etfSharesMap.set(d.date, { totalShares: etfSharesData[lastIdx].totalShares, netAssets: etfSharesData[lastIdx].netAssets });
+        }
+      }
+    }
+
     // 合并指数数据到市值数据
     const merged = historyData.map(d => {
       const indexValues: Partial<Record<IndexType, number>> = {};
@@ -211,10 +260,14 @@ export function useMarketData(
         }
       }
 
+      const etf = etfSharesMap.get(d.date);
+
       return {
         ...d,
         indexValues: selectedIndices.length > 0 ? indexValues as Record<IndexType, number> : undefined,
         avgStockPrice: avgPriceMap.get(d.date),
+        etfShares: etf?.totalShares,
+        etfNetAssets: etf?.netAssets,
       };
     });
 
@@ -237,7 +290,7 @@ export function useMarketData(
     }
 
     return merged;
-  }, [historyData, realtimeCap, selectedIndices, indexDataMap, avgPriceData]);
+  }, [historyData, realtimeCap, selectedIndices, indexDataMap, avgPriceData, etfSharesData]);
 }
 
 export { GDP_RATIOS };

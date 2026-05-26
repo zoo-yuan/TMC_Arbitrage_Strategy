@@ -30,6 +30,7 @@ function App() {
   });
   const [selectedIndices, setSelectedIndices] = useState<IndexType[]>([]);
   const [showAvgPrice, setShowAvgPrice] = useState(false);
+  const [showETFShares, setShowETFShares] = useState(false);
 
   // 股票搜索
   const [stockKeyword, setStockKeyword] = useState('');
@@ -43,7 +44,7 @@ function App() {
     end: new Date(customEndDate),
   } : undefined;
 
-  const data = useMarketData(period, customRange, selectedIndices, showAvgPrice);
+  const data = useMarketData(period, customRange, selectedIndices, showAvgPrice, showETFShares);
   const { realtimeCap, loading, error } = useRealtimeMarketCap();
 
   const latestData = data[data.length - 1];
@@ -191,6 +192,17 @@ function App() {
             <label className="flex items-center gap-2 px-3 py-1.5 rounded-md cursor-pointer transition-colors hover:bg-gray-50">
               <input
                 type="checkbox"
+                checked={showETFShares}
+                onChange={() => setShowETFShares(v => !v)}
+                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm font-medium" style={{ color: showETFShares ? '#9B59B6' : '#666' }}>
+                ETF300份额
+              </span>
+            </label>
+            <label className="flex items-center gap-2 px-3 py-1.5 rounded-md cursor-pointer transition-colors hover:bg-gray-50">
+              <input
+                type="checkbox"
                 checked={showAvgPrice}
                 onChange={() => setShowAvgPrice(v => !v)}
                 className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -312,6 +324,12 @@ function App() {
                 <span className="text-gray-600">{INDEX_CONFIG[idx].name}</span>
               </div>
             ))}
+            {showETFShares && (
+              <div className="flex items-center gap-1.5">
+                <div className="w-4 h-0.5 rounded" style={{ backgroundColor: '#9B59B6' }}></div>
+                <span className="text-gray-600">ETF300份额</span>
+              </div>
+            )}
             {selectedStocks.map(stock => (
               <div key={stock.info.secid} className="flex items-center gap-1.5">
                 <div
@@ -333,6 +351,7 @@ function App() {
             selectedIndices={selectedIndices}
             selectedStocks={selectedStocks}
             showAvgPrice={showAvgPrice}
+            showETFShares={showETFShares}
           />
         </div>
       </main>

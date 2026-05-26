@@ -776,6 +776,53 @@ app.get('/api/avg-stock-price/history', async (req, res) => {
   }
 });
 
+// ============================================================
+// ETF份额历史数据 - 从东方财富基金F10获取季度份额变动
+// ============================================================
+async function getETFSharesHistory(fundCode = '510300') {
+  const url = `http://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=gmbd&code=${fundCode}&per=1&page=1`;
+  const html = await new Promise((resolve, reject) => {
+    http.get(url, {
+      headers: {
+        'Referer': `http://fundf10.eastmoney.com/jbgk_${fundCode}.html`,
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      }
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => resolve(data));
+    }).on('error', reject);
+  });
+
+  // 解析HTML表格行: <tr><td>日期</td><td>申购</td><td>赎回</td><td>总份额</td><td>净资产</td><td>变动率</td></tr>
+  const rowRegex = /<tr><td>([\d-]+)<\/td><td[^>]*>([^<]*)<\/td><td[^>]*>([^<]*)<\/td><td[^>]*>([^<]*)<\/td><td[^>]*>([^<]*)<\/td><td[^>]*>([^<]*)<\/td><\/tr>/g;
+  const result = [];
+  let match;
+  while ((match = rowRegex.exec(html)) !== null) {
+    const date = match[1];
+    const totalShares = parseFloat(match[4].replace(/,/g, ''));
+    const netAssets = parseFloat(match[5].replace(/,/g, ''));
+    if (!isNaN(totalShares) && totalShares > 0) {
+      result.push({ date, totalShares, netAssets: isNaN(netAssets) ? 0 : netAssets });
+    }
+  }
+
+  // 按日期升序排列
+  result.sort((a, b) => a.date.localeCompare(b.date));
+  return result;
+}
+
+// API: 获取ETF份额历史数据
+app.get('/api/etf/shares-history', async (req, res) => {
+  try {
+    const { code = '510300' } = req.query;
+    const data = await getETFSharesHistory(code);
+    res.json({ success: true, data });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`Market API server running on http://localhost:${PORT}`);
@@ -787,4 +834,5 @@ app.listen(PORT, () => {
   console.log(`  GET /api/stock/kline?secid=x.xxxxxx&limit=500`);
   console.log(`  GET /api/stock/realtime?secid=x.xxxxxx`);
   console.log(`  GET /api/avg-stock-price/history?limit=500`);
+  console.log(`  GET /api/etf/shares-history?code=510300`);
 });
